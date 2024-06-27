@@ -17,6 +17,7 @@ limitations under the License.
 package printer
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"strings"
@@ -32,16 +33,23 @@ var _ Printer = (*GatewaysPrinter)(nil)
 
 type GatewaysPrinter struct {
 	io.Writer
-	Clock clock.Clock
+	Clock        clock.Clock
+	EventFetcher eventFetcher
 }
 
 func (gp *GatewaysPrinter) GetPrintableNodes(resourceModel *resourcediscovery.ResourceModel) []NodeResource {
 	return NodeResources(maps.Values(resourceModel.Gateways))
 }
 
-func (gp *GatewaysPrinter) PrintTable(resourceModel *resourcediscovery.ResourceModel) {
+func (gp *GatewaysPrinter) PrintTable(resourceModel *resourcediscovery.ResourceModel, wide bool) {
+	var columnNames []string
+	if wide {
+		columnNames = []string{"NAMESPACE", "NAME", "CLASS", "ADDRESSES", "PORTS", "PROGRAMMED", "AGE", "POLICIES", "HTTPROUTES"}
+	} else {
+		columnNames = []string{"NAMESPACE", "NAME", "CLASS", "ADDRESSES", "PORTS", "PROGRAMMED", "AGE"}
+	}
 	table := &Table{
-		ColumnNames:  []string{"NAME", "CLASS", "ADDRESSES", "PORTS", "PROGRAMMED", "AGE"},
+		ColumnNames:  columnNames,
 		UseSeparator: false,
 	}
 
@@ -74,12 +82,18 @@ func (gp *GatewaysPrinter) PrintTable(resourceModel *resourcediscovery.ResourceM
 		age := duration.HumanDuration(gp.Clock.Since(gatewayNode.Gateway.GetCreationTimestamp().Time))
 
 		row := []string{
+			gatewayNode.Gateway.GetNamespace(),
 			gatewayNode.Gateway.GetName(),
 			string(gatewayNode.Gateway.Spec.GatewayClassName),
 			addressesOutput,
 			portsOutput,
 			programmedStatus,
 			age,
+		}
+		if wide {
+			policiesCount := fmt.Sprintf("%d", len(gatewayNode.Policies))
+			httpRoutesCount := fmt.Sprintf("%d", len(gatewayNode.HTTPRoutes))
+			row = append(row, policiesCount, httpRoutesCount)
 		}
 		table.Rows = append(table.Rows, row)
 	}
@@ -140,7 +154,8 @@ func (gp *GatewaysPrinter) PrintDescribeView(resourceModel *resourcediscovery.Re
 		}
 
 		// Events
-		pairs = append(pairs, &DescriberKV{Key: "Events", Value: convertEventsSliceToTable(gatewayNode.Events, gp.Clock)})
+		eventList := gp.EventFetcher.FetchEventsFor(context.Background(), gatewayNode.Gateway)
+		pairs = append(pairs, &DescriberKV{Key: "Events", Value: convertEventsSliceToTable(eventList.Items, gp.Clock)})
 
 		Describe(gp, pairs)
 

@@ -17,6 +17,7 @@ limitations under the License.
 package printer
 
 import (
+	"context"
 	"fmt"
 	"io"
 
@@ -31,16 +32,23 @@ var _ Printer = (*GatewayClassesPrinter)(nil)
 
 type GatewayClassesPrinter struct {
 	io.Writer
-	Clock clock.Clock
+	Clock        clock.Clock
+	EventFetcher eventFetcher
 }
 
 func (gcp *GatewayClassesPrinter) GetPrintableNodes(resourceModel *resourcediscovery.ResourceModel) []NodeResource {
 	return NodeResources(maps.Values(resourceModel.GatewayClasses))
 }
 
-func (gcp *GatewayClassesPrinter) PrintTable(resourceModel *resourcediscovery.ResourceModel) {
+func (gcp *GatewayClassesPrinter) PrintTable(resourceModel *resourcediscovery.ResourceModel, wide bool) {
+	var columnNames []string
+	if wide {
+		columnNames = []string{"NAME", "CONTROLLER", "ACCEPTED", "AGE", "GATEWAYS"}
+	} else {
+		columnNames = []string{"NAME", "CONTROLLER", "ACCEPTED", "AGE"}
+	}
 	table := &Table{
-		ColumnNames:  []string{"NAME", "CONTROLLER", "ACCEPTED", "AGE"},
+		ColumnNames:  columnNames,
 		UseSeparator: false,
 	}
 
@@ -61,6 +69,10 @@ func (gcp *GatewayClassesPrinter) PrintTable(resourceModel *resourcediscovery.Re
 			string(gatewayClassNode.GatewayClass.Spec.ControllerName),
 			accepted,
 			age,
+		}
+		if wide {
+			gatewayCount := fmt.Sprintf("%d", len(gatewayClassNode.Gateways))
+			row = append(row, gatewayCount)
 		}
 		table.Rows = append(table.Rows, row)
 	}
@@ -96,7 +108,8 @@ func (gcp *GatewayClassesPrinter) PrintDescribeView(resourceModel *resourcedisco
 		pairs = append(pairs, &DescriberKV{Key: "DirectlyAttachedPolicies", Value: convertPolicyRefsToTable(policyRefs)})
 
 		// Events
-		pairs = append(pairs, &DescriberKV{Key: "Events", Value: convertEventsSliceToTable(gatewayClassNode.Events, gcp.Clock)})
+		eventList := gcp.EventFetcher.FetchEventsFor(context.Background(), gatewayClassNode.GatewayClass)
+		pairs = append(pairs, &DescriberKV{Key: "Events", Value: convertEventsSliceToTable(eventList.Items, gcp.Clock)})
 
 		Describe(gcp, pairs)
 

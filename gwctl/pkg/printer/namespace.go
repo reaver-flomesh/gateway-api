@@ -17,6 +17,7 @@ limitations under the License.
 package printer
 
 import (
+	"context"
 	"fmt"
 	"io"
 
@@ -31,16 +32,24 @@ var _ Printer = (*NamespacesPrinter)(nil)
 
 type NamespacesPrinter struct {
 	io.Writer
-	Clock clock.Clock
+	Clock        clock.Clock
+	EventFetcher eventFetcher
 }
 
 func (nsp *NamespacesPrinter) GetPrintableNodes(resourceModel *resourcediscovery.ResourceModel) []NodeResource {
 	return NodeResources(maps.Values(resourceModel.Namespaces))
 }
 
-func (nsp *NamespacesPrinter) PrintTable(resourceModel *resourcediscovery.ResourceModel) {
+func (nsp *NamespacesPrinter) PrintTable(resourceModel *resourcediscovery.ResourceModel, wide bool) {
+	var columnNames []string
+	if wide {
+		columnNames = []string{"NAME", "STATUS", "AGE", "POLICIES"}
+	} else {
+		columnNames = []string{"NAME", "STATUS", "AGE"}
+	}
+
 	table := &Table{
-		ColumnNames:  []string{"NAME", "STATUS", "AGE"},
+		ColumnNames:  columnNames,
 		UseSeparator: false,
 	}
 
@@ -51,6 +60,10 @@ func (nsp *NamespacesPrinter) PrintTable(resourceModel *resourcediscovery.Resour
 			namespaceNode.Namespace.Name,
 			string(namespaceNode.Namespace.Status.Phase),
 			age,
+		}
+		if wide {
+			policiesCount := fmt.Sprintf("%d", len(namespaceNode.Policies))
+			row = append(row, policiesCount)
 		}
 		table.Rows = append(table.Rows, row)
 	}
@@ -83,7 +96,8 @@ func (nsp *NamespacesPrinter) PrintDescribeView(resourceModel *resourcediscovery
 		pairs = append(pairs, &DescriberKV{Key: "DirectlyAttachedPolicies", Value: convertPolicyRefsToTable(policyRefs)})
 
 		// Events
-		pairs = append(pairs, &DescriberKV{Key: "Events", Value: convertEventsSliceToTable(namespaceNode.Events, nsp.Clock)})
+		eventList := nsp.EventFetcher.FetchEventsFor(context.Background(), namespaceNode.Namespace)
+		pairs = append(pairs, &DescriberKV{Key: "Events", Value: convertEventsSliceToTable(eventList.Items, nsp.Clock)})
 
 		Describe(nsp, pairs)
 

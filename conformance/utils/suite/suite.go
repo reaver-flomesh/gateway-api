@@ -193,9 +193,6 @@ func NewConformanceTestSuite(options ConformanceOptions) (*ConformanceTestSuite,
 	}
 
 	grpcClient := options.GRPCClient
-	if grpcClient == nil {
-		grpcClient = &grpc.DefaultClient{Conn: nil}
-	}
 
 	installedCRDs := &apiextensionsv1.CustomResourceDefinitionList{}
 	err := options.Client.List(context.TODO(), installedCRDs)
@@ -458,7 +455,7 @@ func (suite *ConformanceTestSuite) Report() (*confv1.ConformanceReport, error) {
 
 	return &confv1.ConformanceReport{
 		TypeMeta: v1.TypeMeta{
-			APIVersion: "gateway.networking.k8s.io/v1alpha1",
+			APIVersion: confv1.GroupVersion.String(),
 			Kind:       "ConformanceReport",
 		},
 		Date:              time.Now().Format(time.RFC3339),
